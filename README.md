@@ -27,29 +27,43 @@ When the extension runs inside a [pi-herdr-subagents](https://github.com/aliceis
 
 ## Side models
 
-YSK uses these defaults, independently of the main agent's thinking level:
-
-- GPT models → `openai-codex/gpt-6.1-sol`, high thinking.
-- Claude Fable models (including versioned variants) → `anthropic/claude-opus-5-5`, medium thinking.
-- Other models → the main model. Other Claude models keep their existing same-model request behavior.
-
-Both family routes are configurable in `~/.pi/agent/you-should-know/config.json` (under `PI_CODING_AGENT_DIR` when set):
+The optional `model` and `thinking` fields in the same `~/.pi/agent/you-should-know/config.json` (or under `PI_CODING_AGENT_DIR`) set a general side model, regardless of the main model family:
 
 ```json
 {
-  "gpt": { "model": "openai-codex/gpt-6.1-sol", "thinking": "high" },
-  "fable": { "model": "anthropic/claude-opus-5-5", "thinking": "medium" }
+  "model": "openai/gpt-6.1-sol",
+  "thinking": "high"
 }
 ```
 
-Each model value is a registered `provider/model-id`, using that provider's credentials. Thinking accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`, subject to the selected model's support. Missing fields use the defaults above. Changes apply to the next check or explanation; `/ysk status` shows the effective model, thinking and config path.
+The OpenAI provider example above uses the local-trial model `openai/gpt-6.1-sol`. You can also retain the existing family-specific defaults and overrides:
 
-The existing `YSK_MODEL` environment variable overrides the model for any family, including other Claude models. It does not override the GPT/Fable thinking setting. Unknown model IDs fail the check rather than silently using the main model.
+- GPT family → the existing `openai-codex/gpt-6.1-sol`, high-thinking route. That provider is not configured in this local environment; the `openai/gpt-6.1-sol` JSON examples above are the local-trial configuration.
+- Claude Fable family → `anthropic/claude-opus-5-5`, medium thinking.
+- Other models → the main model; other Claude models keep the existing same-model request behavior.
+
+Family routes remain configurable in that same file:
+
+```json
+{
+  "gpt": { "model": "openai/gpt-6.1-sol", "thinking": "high" }
+}
+```
+
+Model selection priority is `YSK_MODEL` environment variable → top-level `model` → existing GPT/Fable family route → current main model. Thinking priority is explicit top-level `thinking` → existing family thinking → the previous undefined behavior. `YSK_MODEL` changes only the model; it does not override thinking. A chosen model must be a registered `provider/model-id` using that provider's credentials. Thinking accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`, subject to provider/model support. Invalid model configuration or unknown IDs fail visibly instead of falling back to the main model. Each detection and explanation reads the config anew; changes apply to the next read, and `/ysk status` reports the effective provider, model, thinking and config path.
 
 ## Cost
 
 Same-model Claude checks reuse the main request's cached prefix. A different side model still receives the conversation, but can cost more because that cache reuse is not guaranteed. Every check is logged, with token usage, to `~/.pi/agent/you-should-know/checks.jsonl`.
 
-## Install
+## Local trial install
 
-    pi install git:github.com/aliceisjustplaying/pi-you-should-know
+To use this fork from the user's main checkout, run:
+
+    pi install "$HOME/projects/oss/pi-you-should-know"
+
+`$HOME` expands to the user's home directory, so this command targets the main checkout, not a disposable worktree. It is documented here but was not run as part of the local-trial changes.
+
+## Source and license
+
+This project is based on the upstream [aliceisjustplaying/pi-you-should-know](https://github.com/aliceisjustplaying/pi-you-should-know) and retains its source attribution. This local fork does not add or change a license; `package.json` continues to mark the package `UNLICENSED`.
