@@ -4,7 +4,7 @@
 
 这是用户 fork 的本机试用改动，不是上游发布。改动包括：中文提醒身份去重；在现有 `config.json` 里用一个通用 `model` / `thinking` 选择旁路模型；让检测与解释遵从主会话明确的语言要求，同时保留高提醒门槛。
 
-配置读取位置为 `${PI_CODING_AGENT_DIR:-~/.pi/agent}/you-should-know/config.json`。本机试用建议值：
+配置读取位置为 `${PI_CODING_AGENT_DIR:-~/.pi/agent}/you-should-know/config.json`。前一轮本机试用建议值：
 
 ```json
 {
@@ -18,6 +18,25 @@
 Unicode 身份规则使用 NFKC、Unicode 小写和 Unicode 字母/数字/组合标记，最后按非字母数字边界折叠空格。这样既保留不同中文提醒，也让全角 `ＡＰＩ` 与 `API` 采用相同身份；seen 与 known 反馈沿用同一个 `norm`。没有空 key 哈希回退。
 
 提示词按主会话明确语言输出；没有明确偏好时用主会话主要语言，完全不明确时英语仍为默认。固定机读标签 `learn` / `tag` / `evidence` / `explain` 与 tag 值保持不变。有效提醒仍须有实际后果、相关于用户目标、没有充分覆盖，并且用户确实未知/不确定；不确定时输出 `learn: none`，不生成总结或科普提醒。语言裁决：主脑裁定交接指令“服从会话语言”为上位 spec；卡面“无明确偏好保持英语默认可以”是许可级从句，因此三层规则为“明确要求 > 会话主语言 > 无从判断时英语”。
+
+## MiniMax 主用与 GPT Luna 单次备用
+
+当前 fork 可在同一配置文件中指定主模型与一个可选备用模型：
+
+```json
+{
+  "model": "minimax-cn/MiniMax-M3.1-Flash-Preview",
+  "thinking": "off",
+  "fallback": {
+    "model": "openai/gpt-6-luna",
+    "thinking": "off"
+  }
+}
+```
+
+只有主请求 `stopReason=error` 或主模型调用抛出请求错误时，才向备用发送一次相同会话上下文及该请求的安全提示；不重试主模型。主模型正常完成、返回 `learn: none`、输出不可解析、用户取消请求时不调备用。备用请求沿用它自己的 `thinking`，不被主模型的 family 配置覆盖。无 `fallback` 的旧单模型配置路径保持原样；无效备用模型或 thinking 在发出模型请求前报错。
+
+`/ysk status` 同时显示主/备用 provider、model 和 thinking。`checks.jsonl` 中 `ysk_fallback_triggered` 用固定原因码标记切换，并记录两侧 provider/model；`ysk_fallback_result` 记录最终响应 outcome 及可用 usage，check entry 可区分主模型直成与备用成功。日志不写请求 prompt、完整 payload、完整响应或凭据。Pi + 本机 HTTP producer fixture 检查实际 provider URL、model 与序列化 thinking 字段；它不证明真实 MiniMax/GPT Luna 的 thinking 能力、输出质量或提醒有增量价值，仍未执行真实模型烟测。
 
 ## 验证
 

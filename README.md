@@ -36,7 +36,22 @@ The optional `model` and `thinking` fields in the same `~/.pi/agent/you-should-k
 }
 ```
 
-The OpenAI provider example above uses the local-trial model `openai/gpt-6.1-sol`. You can also retain the existing family-specific defaults and overrides:
+The OpenAI provider example above uses the local-trial model `openai/gpt-6.1-sol`. For the current MiniMax trial, an optional single backup can be configured in the same file:
+
+```json
+{
+  "model": "minimax-cn/MiniMax-M3.1-Flash-Preview",
+  "thinking": "off",
+  "fallback": {
+    "model": "openai/gpt-6-luna",
+    "thinking": "off"
+  }
+}
+```
+
+The backup is called once only when the primary model request returns an error or throws a request error. A successful response—including `learn: none` or an unparseable answer—does not call it; aborts do not switch. There is no retry of the primary model. If both models fail, the check remains an error rather than becoming a fabricated `none` result.
+
+You can also retain the existing family-specific defaults and overrides:
 
 - GPT family → the existing `openai-codex/gpt-6.1-sol`, high-thinking route. That provider is not configured in this local environment; the `openai/gpt-6.1-sol` JSON examples above are the local-trial configuration.
 - Claude Fable family → `anthropic/claude-opus-5-5`, medium thinking.
@@ -50,7 +65,9 @@ Family routes remain configurable in that same file:
 }
 ```
 
-Model selection priority is `YSK_MODEL` environment variable → top-level `model` → existing GPT/Fable family route → current main model. Thinking priority is explicit top-level `thinking` → existing family thinking → the previous undefined behavior. `YSK_MODEL` changes only the model; it does not override thinking. A chosen model must be a registered `provider/model-id` using that provider's credentials. Thinking accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`, subject to provider/model support. Invalid model configuration or unknown IDs fail visibly instead of falling back to the main model. Each detection and explanation reads the config anew; changes apply to the next read, and `/ysk status` reports the effective provider, model, thinking and config path.
+Model selection priority is `YSK_MODEL` environment variable → top-level `model` → existing GPT/Fable family route → current main model. Thinking priority is explicit top-level `thinking` → existing family thinking → the previous undefined behavior. `YSK_MODEL` changes only the model; it does not override thinking. The optional top-level `fallback` is independent of family thinking and has its own `model` and optional `thinking`. A chosen model must be a registered `provider/model-id` using that provider's credentials. Thinking accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`, subject to provider/model support. Invalid model configuration or unknown IDs fail visibly instead of falling back to the main model. Each detection and explanation reads the config anew; changes apply to the next read, and `/ysk status` reports both effective routes and their thinking levels.
+
+Fallback diagnostics are written to `checks.jsonl`: `ysk_fallback_triggered` records a fixed reason code and both provider/model IDs; `ysk_fallback_result` records the final response outcome and usage when available. Check entries distinguish primary success from fallback use. These logs do not contain the request prompt, raw payload, full response, or credentials. The fixture tests verify routing, but do not measure real MiniMax/GPT Luna reminder quality or provider-side thinking support.
 
 ## Cost
 
