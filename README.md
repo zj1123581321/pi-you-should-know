@@ -11,6 +11,7 @@ It's a port of the "you should know" plugin built into Claude Code.
 - A note shows up above the editor, like `✦ Heads up · The agent loosened the test threshold from 0.8 to 0.65.`
 - `/ysk` or alt+shift+y: open the top note. You can learn more about it, mark it as something you knew, send it to the agent or dismiss it.
 - alt+x: dismiss the top note.
+- `/ysk clear`: dismiss every open note at once.
 - `/ysk off`, `/ysk on`, `/ysk status`: turn it off and on, or see how many checks it has run.
 
 If you keep ignoring notes, it checks less often. Answering any note resets that.
