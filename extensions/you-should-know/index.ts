@@ -635,6 +635,23 @@ export default function (pi: ExtensionAPI) {
 			);
 			return;
 		}
+		if (arg === "clear" && ctx.mode === "tui") {
+			if (notes.length === 0) {
+				ctx.ui.notify("No notes to dismiss.", "info");
+				return;
+			}
+			const dismissed = notes.slice();
+			notes = [];
+			for (const n of dismissed) {
+				log({ event: "answer", answer: "dismiss", via: "clear", line: n.line, msToAnswer: Date.now() - n.shownAt });
+			}
+			state.ignoredInARow = 0;
+			state.skip = 0;
+			saveState(state);
+			render(ctx);
+			ctx.ui.notify(`Dismissed ${dismissed.length} notes.`, "info");
+			return;
+		}
 		if (notes.length === 0) {
 			ctx.ui.notify(`Nothing to know right now. (${state.enabled ? `${checks} checks so far` : "off: /ysk on"})`, "info");
 			return;
@@ -705,7 +722,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.registerCommand("ysk", {
-		description: "You should know: respond to the current note (/ysk on|off|status|test)",
+		description: "You should know: respond to the current note (/ysk on|off|status|test|clear)",
 		handler: async (args, ctx) => respond(ctx, args?.trim() || undefined),
 	});
 	pi.registerShortcut("alt+shift+y", { description: "You should know: respond to the current note", handler: (ctx) => respond(ctx) });
