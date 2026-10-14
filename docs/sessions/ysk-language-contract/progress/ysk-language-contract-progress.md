@@ -13,3 +13,17 @@ implementing
 
 ### 下一步唯一动作
 补 E2E/单元锁（修复成功、丢单、混排、去重、非法 language）并写入 README。
+
+## 2026-10-14 E2E 锁与 README
+
+### 当前阶段
+implementing
+
+### 本段结论
+`tests/language.test.mjs` 锁修复成功/丢单/混排/去重/非法 language/en 双向；`tests/routing.test.mjs` 断言真实 sidePayload 含跟随对话指令。README 在 Side models 后增加 Note language 小节。
+
+### 关键决策与已否决方案
+E2E 放新文件而非塞进 detection.test.mjs，避免把 idle-delivery 夹具和语言契约缠在一起。wire 负验注释掉 `{{LANGUAGE_CONTRACT}}` 注入后 routing/language 均 AssertionError 变红。
+
+### 下一步唯一动作
+提交本段、push，开 PR。
