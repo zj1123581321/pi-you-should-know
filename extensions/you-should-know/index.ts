@@ -26,7 +26,6 @@ const PROMPTS_SURVIVED = 2; // var Tr=2: a note survives this many user prompts
 const MAX_SKIP = 16; // var dt=16
 const FREE_IGNORES = 2; // var ut=2
 const HISTORY_MAX = 50; // var $t=50
-const MAX_NOTES = 5; // local: notes pile up until answered; oldest drops past this
 const backoff = (ignoredInARow: number) =>
 	ignoredInARow <= FREE_IGNORES ? 0 : Math.min(MAX_SKIP, 2 ** (ignoredInARow - FREE_IGNORES - 1)); // kn()
 
@@ -179,6 +178,12 @@ function configuredLanguage(config: Record<string, unknown> = readConfig()): Not
 	const value = config.language;
 	if (value === "zh" || value === "en") return value;
 	throw new Error("YSK language must be zh or en");
+}
+function configuredMaxNotes(config: Record<string, unknown> = readConfig()): number {
+	if (!Object.hasOwn(config, "maxNotes")) return 5; // pre-config cap: notes pile up until answered, oldest drops past five
+	const value = config.maxNotes;
+	if (typeof value === "number" && Number.isInteger(value) && value >= 1) return value;
+	throw new Error("YSK maxNotes must be a positive integer");
 }
 
 const textOf = (msg: { content: unknown }) =>
@@ -553,6 +558,7 @@ export default function (pi: ExtensionAPI) {
 			let extra: Record<string, unknown> = {};
 			try {
 				const language = configuredLanguage();
+				const maxNotes = configuredMaxNotes();
 				const r = await fork(ctx, lastLlmMessages, detectPrompt(seen, known, language), ac.signal);
 				extra = { usage: r.usage, stopReason: r.stopReason, error: r.error, provider: r.provider, model: r.model, thinking: r.thinking };
 				if (ac.signal.aborted || r.stopReason === "aborted") outcome = "aborted";
@@ -621,7 +627,7 @@ export default function (pi: ExtensionAPI) {
 							}
 						}
 						notes.push(note);
-						while (ctx.mode === "tui" && notes.length > MAX_NOTES) log({ event: "overflow_dropped", line: notes.shift()!.line });
+						while (ctx.mode === "tui" && notes.length > maxNotes) log({ event: "overflow_dropped", line: notes.shift()!.line });
 						render(ctx);
 						if (ctx.mode !== "tui") announce(ctx, note);
 					}

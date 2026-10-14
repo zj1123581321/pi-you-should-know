@@ -57,6 +57,10 @@ When `language` is omitted, YSK follows the conversation: an explicit language r
 
 Any other `language` value fails that check with `YSK language must be zh or en`. Widget prefixes, `/ysk` menus, and notify chrome stay in English.
 
+## Note pile-up cap
+
+Optional `maxNotes` in the same `config.json`: a positive integer, default 5. It caps how many unanswered notes pile up in the TUI; when a check pushes past the cap, the oldest note is dropped and `checks.jsonl` records `overflow_dropped` with its line (RPC clients never drop). Any other value fails that check with `YSK maxNotes must be a positive integer`.
+
 ## Cost
 
 Same-model Claude checks reuse the main request's cached prefix. A different side model still receives the conversation, but can cost more because that cache reuse is not guaranteed. Every check is logged, with token usage, to `~/.pi/agent/you-should-know/checks.jsonl`.
