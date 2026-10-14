@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, describe, test } from 'node:test';
-import fs, { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { registerHooks, syncBuiltinESMExports } from 'node:module';
@@ -16,23 +16,37 @@ registerHooks({ resolve(specifier, context, next) {
 }});
 delete process.env.PI_CODING_AGENT_DIR;
 const { default: extension } = await import(process.env.YSK_TEST_SOURCE ?? '../extensions/you-should-know/index.ts');
-function open(session, sessionDir = home, mode = 'rpc') {
+function open(session, sessionDir = home, mode = 'rpc', options = {}) {
   const handlers = new Map();
   const notices = [];
   const widgets = [];
   let command;
   extension({ on: (event, handler) => handlers.set(event, handler), registerCommand: (_, value) => { command = value.handler; }, registerShortcut() {} });
   const ctx = {
-    mode, hasUI: false, isIdle: () => false,
+    mode, hasUI: options.hasUI ?? false, isIdle: () => false,
+    model: options.model,
+    modelRegistry: options.modelRegistry,
+    getSystemPrompt: () => 'fixture system prompt',
     sessionManager: { getSessionDir: () => sessionDir, getSessionId: () => session },
     ui: { notify: (message) => notices.push(message), setWidget: (name, value) => widgets.push({ name, value }) },
   };
   handlers.get('session_start')({}, ctx);
-  return { notices, widgets, command: (text) => command(text, ctx), input: (text) => handlers.get('input')({ source: 'rpc', text }, ctx), close: () => handlers.get('session_shutdown')({}, ctx) };
+  return { notices, widgets, command: (text) => command(text, ctx), input: (text) => handlers.get('input')({ source: 'rpc', text }, ctx), turnEnd: (turnIndex) => handlers.get('turn_end')({ turnIndex, context: { llmMessages: [] } }, ctx), close: () => handlers.get('session_shutdown')({}, ctx) };
 }
 const state = () => { const file = join(home, '.pi/agent/you-should-know/state.json'); return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : { known: [], ignoredInARow: 0, skip: 0 }; };
 const logs = () => { const file = join(home, '.pi/agent/you-should-know/checks.jsonl'); return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []; };
 const notesFile = (session) => JSON.parse(readFileSync(join(home, 'artifacts', session, 'you-should-know.json'), 'utf8'));
+const CONFIG_DIR = join(home, '.pi/agent/you-should-know');
+const resetState = () => { mkdirSync(CONFIG_DIR, { recursive: true }); writeFileSync(join(CONFIG_DIR, 'state.json'), JSON.stringify({ enabled: true, seen: [], known: [], ignoredInARow: 0, skip: 0 })); };
+const setConfig = (config) => { mkdirSync(CONFIG_DIR, { recursive: true }); if (config) writeFileSync(join(CONFIG_DIR, 'config.json'), JSON.stringify(config)); else rmSync(join(CONFIG_DIR, 'config.json'), { force: true }); };
+const sideModel = (line) => ({ model: { id: 'fixture/model', api: 'openai-completions', provider: 'fixture' }, modelRegistry: { streamSimple: () => ({ result: async () => ({ content: [{ type: 'text', text: line() }], usage: {}, stopReason: 'stop' }) }) } });
+const waitChecks = async (baseline, count) => {
+  for (let i = 0; i < 10000; i++) {
+    if (logs().filter((entry) => entry.event === 'check').length >= baseline + count) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error('timed out waiting for checks');
+};
 
 describe('notes', { concurrency: false }, () => {
 test('RPC prompts count ignored notes and back off, but ysk commands do not', async () => {
@@ -127,5 +141,59 @@ test('RPC /ysk clear leaves notes in place', async () => {
   await client.command(`answer ${id} dismiss`);
   assert.equal(notesFile('clear-rpc').notes.length, 1);
   client.close();
+});
+
+test('unconfigured TUI cap stays 5: the sixth note drops the oldest', async () => {
+  resetState();
+  setConfig(undefined);
+  let n = 0;
+  const client = open('cap-five', home, 'tui', { hasUI: true, ...sideModel(() => `learn: cap five note ${++n}`) });
+  try {
+    const checkBase = logs().filter((entry) => entry.event === 'check').length;
+    const logBase = logs().length;
+    for (let i = 1; i <= 6; i++) { client.turnEnd(i * 6); await waitChecks(checkBase, i); }
+    for (const entry of logs().slice(logBase).filter((entry) => entry.event === 'check')) assert.equal(entry.outcome, 'shown');
+    const drops = logs().slice(logBase).filter((entry) => entry.event === 'overflow_dropped');
+    assert.equal(drops.length, 1);
+    assert.equal(drops[0].line, 'cap five note 1');
+    assert.deepEqual(notesFile('cap-five').notes.map((note) => note.line), ['cap five note 2', 'cap five note 3', 'cap five note 4', 'cap five note 5', 'cap five note 6']);
+  } finally { client.close(); }
+});
+
+test('maxNotes 2 drops the oldest note when the third arrives in TUI', async () => {
+  resetState();
+  setConfig({ maxNotes: 2 });
+  let n = 0;
+  const client = open('cap-two', home, 'tui', { hasUI: true, ...sideModel(() => `learn: cap two note ${++n}`) });
+  try {
+    const checkBase = logs().filter((entry) => entry.event === 'check').length;
+    const logBase = logs().length;
+    for (let i = 1; i <= 3; i++) { client.turnEnd(i * 6); await waitChecks(checkBase, i); }
+    for (const entry of logs().slice(logBase).filter((entry) => entry.event === 'check')) assert.equal(entry.outcome, 'shown');
+    const drops = logs().slice(logBase).filter((entry) => entry.event === 'overflow_dropped');
+    assert.equal(drops.length, 1);
+    assert.equal(drops[0].line, 'cap two note 1');
+    assert.deepEqual(notesFile('cap-two').notes.map((note) => note.line), ['cap two note 2', 'cap two note 3']);
+  } finally { setConfig(undefined); client.close(); }
+});
+
+test('invalid maxNotes fails the check before any fork', async () => {
+  resetState();
+  let n = 0;
+  const client = open('cap-bad', home, 'tui', { hasUI: true, ...sideModel(() => `learn: must not show ${++n}`) });
+  try {
+    for (const value of [0, 'three']) {
+      setConfig({ maxNotes: value });
+      const logBase = logs().length;
+      client.turnEnd(6);
+      for (let i = 0; i < 10000 && logs().length <= logBase; i++) await new Promise((resolve) => setImmediate(resolve));
+      const entry = logs().slice(logBase).find((entry) => entry.event === 'check');
+      assert.ok(entry, `no check logged for maxNotes ${JSON.stringify(value)}`);
+      assert.equal(entry.outcome, 'error');
+      assert.match(String(entry.error), /YSK maxNotes must be a positive integer/);
+    }
+    assert.equal(notesFile('cap-bad').notes.length, 0);
+    assert.equal(n, 0);
+  } finally { setConfig(undefined); client.close(); }
 });
 });
