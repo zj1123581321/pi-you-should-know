@@ -47,6 +47,16 @@ Each model value is a registered `provider/model-id`, using that provider's cred
 
 The existing `YSK_MODEL` environment variable overrides the model for any family, including other Claude models. It does not override the GPT/Fable thinking setting. Unknown model IDs fail the check rather than silently using the main model.
 
+## Note language
+
+Optional `language` in the same `config.json`: `zh` or `en`.
+
+When set, detect and explain prompts require that language for the learn line and the explain text. Protocol labels (`learn:`, `tag:`, `evidence:`, `explain:`), tag values (`You should know`, `Heads up`), and sentinels (`learn: none`, `evidence: none`) stay in English and are never translated. After generation, a deterministic check runs on the learn line and explain text (not on evidence or tags). A mismatch is repaired once, without replaying the main conversation. A second mismatch discards the note: it is not shown and not sent as a notification, and `checks.jsonl` records `outcome: "language_rejected"` with a line summary. Mixed Chinese with English technical terms, code names, and issue numbers is valid for `zh`.
+
+When `language` is omitted, YSK follows the conversation: an explicit language request wins, otherwise the main language of the chat, and English only when there is no clear signal. Protocol elements still stay in English. There is no post-generation language check in this mode.
+
+Any other `language` value fails that check with `YSK language must be zh or en`. Widget prefixes, `/ysk` menus, and notify chrome stay in English.
+
 ## Cost
 
 Same-model Claude checks reuse the main request's cached prefix. A different side model still receives the conversation, but can cost more because that cache reuse is not guaranteed. Every check is logged, with token usage, to `~/.pi/agent/you-should-know/checks.jsonl`.
