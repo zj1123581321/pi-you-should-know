@@ -10,7 +10,7 @@ after(() => rmSync(home, { recursive: true, force: true }));
 const data = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
 registerHooks({ resolve(specifier, context, next) {
   if (specifier === 'node:os') return { url: data(`export const homedir = () => ${JSON.stringify(home)}`), shortCircuit: true };
-  if (specifier === '@earendil-works/pi-coding-agent') return { url: data('export class DynamicBorder {}; export const getMarkdownTheme = () => ({})'), shortCircuit: true };
+  if (specifier === '@earendil-works/pi-coding-agent') return { url: data('export class DynamicBorder {}; export const getMarkdownTheme = () => ({}); export const convertToLlm = (messages) => messages'), shortCircuit: true };
   if (specifier === '@earendil-works/pi-tui') return { url: data('export class Container {}; export class Markdown {}; export class Text {}; export const matchesKey = () => false'), shortCircuit: true };
   return next(specifier, context);
 }});
@@ -18,20 +18,21 @@ delete process.env.PI_CODING_AGENT_DIR;
 const { default: extension } = await import(process.env.YSK_TEST_SOURCE ?? '../extensions/you-should-know/index.ts');
 function open(session, sessionDir = home, mode = 'rpc', options = {}) {
   const handlers = new Map();
+  const registered = [];
   const notices = [];
   const widgets = [];
   let command;
-  extension({ on: (event, handler) => handlers.set(event, handler), registerCommand: (_, value) => { command = value.handler; }, registerShortcut() {} });
+  extension({ on: (event, handler) => { registered.push(event); handlers.set(event, handler); }, registerCommand: (_, value) => { command = value.handler; }, registerShortcut() {} });
   const ctx = {
     mode, hasUI: options.hasUI ?? false, isIdle: () => false,
     model: options.model,
     modelRegistry: options.modelRegistry,
     getSystemPrompt: () => 'fixture system prompt',
-    sessionManager: { getSessionDir: () => sessionDir, getSessionId: () => session },
+    sessionManager: { getSessionDir: () => sessionDir, getSessionId: () => session, buildSessionProjection: () => ({ messages: [] }) },
     ui: { notify: (message) => notices.push(message), setWidget: (name, value) => widgets.push({ name, value }) },
   };
   handlers.get('session_start')({}, ctx);
-  return { notices, widgets, command: (text) => command(text, ctx), input: (text) => handlers.get('input')({ source: 'rpc', text }, ctx), turnEnd: (turnIndex) => handlers.get('turn_end')({ turnIndex, context: { llmMessages: [] } }, ctx), close: () => handlers.get('session_shutdown')({}, ctx) };
+  return { registered, notices, widgets, command: (text) => command(text, ctx), input: (text) => handlers.get('input')({ source: 'rpc', text }, ctx), turnStart: (turnIndex) => handlers.get('turn_start')({ turnIndex }, ctx), close: () => handlers.get('session_shutdown')({}, ctx) };
 }
 const state = () => { const file = join(home, '.pi/agent/you-should-know/state.json'); return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : { known: [], ignoredInARow: 0, skip: 0 }; };
 const logs = () => { const file = join(home, '.pi/agent/you-should-know/checks.jsonl'); return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []; };
@@ -49,6 +50,16 @@ const waitChecks = async (baseline, count) => {
 };
 
 describe('notes', { concurrency: false }, () => {
+test('registers no boundary events: any boundary handler (turn_end, agent_before_settle) makes Pi rebuild agent.state.messages each turn and defeats cacheWarming "idle" (pi#10956)', () => {
+  const client = open('boundary-events');
+  try {
+    assert.ok(client.registered.includes('turn_start'), 'detection must stay scheduled via turn_start');
+    for (const boundary of ['turn_end', 'agent_before_settle']) {
+      assert.equal(client.registered.includes(boundary), false, `must not register boundary event ${boundary}`);
+    }
+  } finally { client.close(); }
+});
+
 test('RPC prompts count ignored notes and back off, but ysk commands do not', async () => {
   const client = open('backoff');
   for (let i = 0; i < 3; i++) await client.command('test');
@@ -151,7 +162,7 @@ test('unconfigured TUI cap stays 5: the sixth note drops the oldest', async () =
   try {
     const checkBase = logs().filter((entry) => entry.event === 'check').length;
     const logBase = logs().length;
-    for (let i = 1; i <= 6; i++) { client.turnEnd(i * 6); await waitChecks(checkBase, i); }
+    for (let i = 1; i <= 6; i++) { client.turnStart(i * 6); await waitChecks(checkBase, i); }
     for (const entry of logs().slice(logBase).filter((entry) => entry.event === 'check')) assert.equal(entry.outcome, 'shown');
     const drops = logs().slice(logBase).filter((entry) => entry.event === 'overflow_dropped');
     assert.equal(drops.length, 1);
@@ -168,7 +179,7 @@ test('maxNotes 2 drops the oldest note when the third arrives in TUI', async () 
   try {
     const checkBase = logs().filter((entry) => entry.event === 'check').length;
     const logBase = logs().length;
-    for (let i = 1; i <= 3; i++) { client.turnEnd(i * 6); await waitChecks(checkBase, i); }
+    for (let i = 1; i <= 3; i++) { client.turnStart(i * 6); await waitChecks(checkBase, i); }
     for (const entry of logs().slice(logBase).filter((entry) => entry.event === 'check')) assert.equal(entry.outcome, 'shown');
     const drops = logs().slice(logBase).filter((entry) => entry.event === 'overflow_dropped');
     assert.equal(drops.length, 1);
@@ -185,7 +196,7 @@ test('invalid maxNotes fails the check before any fork', async () => {
     for (const value of [0, 'three']) {
       setConfig({ maxNotes: value });
       const logBase = logs().length;
-      client.turnEnd(6);
+      client.turnStart(6);
       for (let i = 0; i < 10000 && logs().length <= logBase; i++) await new Promise((resolve) => setImmediate(resolve));
       const entry = logs().slice(logBase).find((entry) => entry.event === 'check');
       assert.ok(entry, `no check logged for maxNotes ${JSON.stringify(value)}`);
